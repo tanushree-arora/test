@@ -733,7 +733,7 @@ def export_manager_reports(
         parent_folder.mkdir(parents=True, exist_ok=True)
 
         output_path = parent_folder / f"{make_safe_name(manager)}.xlsx"
-        group.to_excel(output_path, index=False)
+        group.to_excel(output_path, index=False, sheet_name="Manager_Rollup")
 
 
 def _append_sheets(source_file: Path, target_file: Path) -> None:
