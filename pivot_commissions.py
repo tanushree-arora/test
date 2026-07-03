@@ -35,12 +35,18 @@ def to_number(series: pd.Series) -> pd.Series:
 
 
 def normalize_label(series: pd.Series) -> pd.Series:
-    """Title-case category/person text so both sources share the same labels."""
+    """Title-case category/person text so both sources share the same labels.
+
+    Missing values (``NaN``/``NA``) become an empty string so they survive as a
+    valid "blank" group key (e.g. rows with no Brand) instead of being dropped
+    by the pivot.
+    """
     return (
-        series.astype(str)
+        series.fillna("")
+        .astype(str)
         .str.strip()
         .str.title()
-        .replace({"Nan": "", "None": ""})
+        .replace({"Nan": "", "None": "", "<Na>": ""})
     )
 
 
