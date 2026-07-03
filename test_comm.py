@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 from typing import Iterable
 
@@ -735,70 +736,79 @@ def export_manager_reports(
         group.to_excel(output_path, index=False)
 
 
-def merge_duplicate_workbooks(
-    root_folders: list[Path],
-    delete_duplicate_after_merge: bool = False,
-) -> None:
-    """Merge workbooks that share the same filename across folders.
+def _append_sheets(source_file: Path, target_file: Path) -> None:
+    """Append every sheet of ``source_file`` into an existing ``target_file``.
 
     Args:
-        root_folders: Folders to search recursively for Excel files.
-        delete_duplicate_after_merge: Whether to delete merged duplicate files.
+        source_file: Workbook whose sheets are copied.
+        target_file: Existing workbook that receives the new sheets.
     """
-    all_files = [
-        file_path
-        for folder in root_folders
-        for file_path in folder.rglob("*.xlsx")
-        if file_path.is_file()
-    ]
+    source_excel = pd.ExcelFile(source_file)
 
-    files_by_name: dict[str, list[Path]] = {}
-    for file_path in all_files:
-        files_by_name.setdefault(file_path.name, []).append(file_path)
+    with pd.ExcelWriter(
+        target_file,
+        engine="openpyxl",
+        mode="a",
+        if_sheet_exists="new",
+    ) as writer:
+        existing_sheet_names = set(writer.book.sheetnames)
 
-    duplicate_files = {
-        file_name: paths
-        for file_name, paths in files_by_name.items()
-        if len(paths) > 1
-    }
+        for sheet_name in source_excel.sheet_names:
+            temp_df = pd.read_excel(source_file, sheet_name=sheet_name)
 
-    for _, paths in duplicate_files.items():
-        primary_file = paths[0]
-        duplicates = paths[1:]
+            if len(source_excel.sheet_names) > 1:
+                new_sheet_name = f"{source_file.stem}_{sheet_name}"[:31]
+            else:
+                new_sheet_name = "Manager_Rollup"[:31]
 
-        for duplicate_index, second_file in enumerate(duplicates, start=2):
-            second_excel = pd.ExcelFile(second_file)
+            original_name = new_sheet_name
+            counter = 1
+            while new_sheet_name in existing_sheet_names:
+                suffix = f"_{counter}"
+                new_sheet_name = f"{original_name[:31 - len(suffix)]}{suffix}"
+                counter += 1
 
-            with pd.ExcelWriter(
-                primary_file,
-                engine="openpyxl",
-                mode="a",
-                if_sheet_exists="new",
-            ) as writer:
-                existing_sheet_names = set(writer.book.sheetnames)
+            temp_df.to_excel(writer, sheet_name=new_sheet_name, index=False)
+            existing_sheet_names.add(new_sheet_name)
 
-                for sheet_name in second_excel.sheet_names:
-                    temp_df = pd.read_excel(second_file, sheet_name=sheet_name)
 
-                    if len(second_excel.sheet_names) > 1:
-                        new_sheet_name = f"{second_file.stem}_{sheet_name}"[:31]
-                    else:
-                        new_sheet_name = f"Sheet{duplicate_index}"[:31]
+def consolidate_manager_reports(
+    owner_dir: Path,
+    manager_dir: Path,
+    delete_source_after_merge: bool = False,
+) -> None:
+    """Consolidate managerial rollups into the owner-report tree.
 
-                    original_name = new_sheet_name
-                    counter = 1
-                    while new_sheet_name in existing_sheet_names:
-                        suffix = f"_{counter}"
-                        new_sheet_name = (
-                            f"{original_name[:31 - len(suffix)]}{suffix}"
-                        )
-                        counter += 1
+    For every rollup under ``manager_dir`` (``<parent>/<manager>.xlsx``), the
+    matching ``<parent>/<manager>.xlsx`` location inside ``owner_dir`` is the
+    destination:
 
-                    temp_df.to_excel(writer, sheet_name=new_sheet_name, index=False)
-                    existing_sheet_names.add(new_sheet_name)
+    - If a workbook already exists there (the manager is also an opportunity
+      owner under the same parent), the rollup's sheets are appended to it.
+    - Otherwise the rollup is copied into ``owner_dir`` under the same parent
+      folder, creating that folder if needed.
 
-            if delete_duplicate_after_merge:
-                second_file.unlink(missing_ok=True)
+    Args:
+        owner_dir: Destination tree (``output_by_manager``).
+        manager_dir: Source tree of managerial rollups (``manager_reports``).
+        delete_source_after_merge: Whether to remove the source rollup once
+            consolidated into ``owner_dir``.
+    """
+    for source_file in sorted(manager_dir.rglob("*.xlsx")):
+        if not source_file.is_file():
+            continue
+
+        relative_path = source_file.relative_to(manager_dir)
+        target_file = owner_dir / relative_path
+        target_file.parent.mkdir(parents=True, exist_ok=True)
+
+        if target_file.exists():
+            _append_sheets(source_file, target_file)
+        else:
+            shutil.copy2(source_file, target_file)
+
+        if delete_source_after_merge:
+            source_file.unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -835,11 +845,12 @@ def main() -> None:
     export_manager_reports(df_manager_report, manager_output_dir, parent_lookup)
     print("Manager report files created successfully.")
 
-    merge_duplicate_workbooks(
-        root_folders=[owner_output_dir, manager_output_dir],
-        delete_duplicate_after_merge=False,
+    consolidate_manager_reports(
+        owner_dir=owner_output_dir,
+        manager_dir=manager_output_dir,
+        delete_source_after_merge=False,
     )
-    print("Duplicate workbook merge completed.")
+    print("Manager report consolidation completed.")
 
 
 if __name__ == "__main__":
