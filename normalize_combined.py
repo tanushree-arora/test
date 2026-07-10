@@ -52,7 +52,11 @@ def normalize_combined(input_file: Path, output_file: Path) -> None:
 
     combined.to_excel(output_file, index=False, sheet_name="Normalized")
     people = combined["Person"].nunique()
-    total = combined["Commission"].sum()
+    numeric = pd.to_numeric(
+        combined["Commission"].astype(str).str.replace(r"[$,]", "", regex=True),
+        errors="coerce",
+    )
+    total = numeric.sum()
     print(f"{len(combined)} rows, {people} people, total commission: ${total:,.2f}")
     print(f"Saved {output_file}")
 
