@@ -1,2 +1,9 @@
 __pycache__/
 *.pyc
+
+# Generated data files (contain sensitive commission data)
+combined_output.xlsx
+combined_normalized.xlsx
+commissions_pivot.xlsx
+output_by_manager/
+manager_reports/
