@@ -46,17 +46,19 @@ def normalize_combined(input_file: Path, output_file: Path) -> None:
 
     combined = pd.concat(records, ignore_index=True)
 
+    # Convert Commission from currency strings to plain numbers
+    combined["Commission"] = pd.to_numeric(
+        combined["Commission"].astype(str).str.replace(r"[$,]", "", regex=True),
+        errors="coerce",
+    ).fillna(0.0)
+
     cols = ["Person", "Commission", "Commission Type", "Source Sheet"]
     rest = [c for c in combined.columns if c not in cols]
     combined = combined[cols + rest]
 
     combined.to_excel(output_file, index=False, sheet_name="Normalized")
     people = combined["Person"].nunique()
-    numeric = pd.to_numeric(
-        combined["Commission"].astype(str).str.replace(r"[$,]", "", regex=True),
-        errors="coerce",
-    )
-    total = numeric.sum()
+    total = combined["Commission"].sum()
     print(f"{len(combined)} rows, {people} people, total commission: ${total:,.2f}")
     print(f"Saved {output_file}")
 
